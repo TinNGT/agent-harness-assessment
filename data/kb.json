@@ -1,0 +1,80 @@
+[
+  {
+    "id": "kb-001",
+    "title": "Diagnosing a saturated database connection pool",
+    "tags": ["database", "connection pool", "database-primary", "degraded"],
+    "content": "When database-primary reports a high connection-pool utilization, check for long-running transactions with `SHOW PROCESSLIST` and kill any query running longer than 60s. Verify the application-side pool size matches the documented capacity plan. If utilization stays above 90% after killing stale queries, scale up the read-replica pool before restarting the primary."
+  },
+  {
+    "id": "kb-002",
+    "title": "Restarting a degraded service safely",
+    "tags": ["restart", "runbook", "degraded"],
+    "content": "Drain traffic from the instance via the load balancer, wait for in-flight requests to complete (max 30s), then restart the process. Confirm health checks pass for at least 2 minutes before re-adding the instance to rotation. Never restart more than one instance at a time in a cluster smaller than 3 nodes."
+  },
+  {
+    "id": "kb-003",
+    "title": "Incident severity definitions",
+    "tags": ["severity", "incident", "definitions"],
+    "content": "critical: full outage or data loss affecting all customers. high: major functionality broken for a significant subset of customers. medium: degraded performance or a broken non-critical feature. low: cosmetic issue or a workaround exists."
+  },
+  {
+    "id": "kb-004",
+    "title": "auth-service outage response",
+    "tags": ["auth-service", "outage", "down", "login"],
+    "content": "If auth-service is down, immediately check the identity-provider upstream status page. Most outages are caused by an expired signing certificate — check cert expiry with `openssl x509 -enddate` against the configured JWKS endpoint. If the cert is valid, roll back the last deploy and open a critical incident."
+  },
+  {
+    "id": "kb-005",
+    "title": "payment-api elevated latency runbook",
+    "tags": ["payment-api", "latency", "degraded", "checkout"],
+    "content": "Elevated checkout latency is most commonly caused by the fraud-scoring service timing out. Check its p99 latency dashboard first. If fraud-scoring is healthy, check database-primary connection pool saturation, since payment-api shares the primary with the order service."
+  },
+  {
+    "id": "kb-006",
+    "title": "On-call escalation policy",
+    "tags": ["escalation", "on-call", "policy"],
+    "content": "Page the primary on-call engineer for any high or critical severity incident. If there is no acknowledgment within 10 minutes, escalate to the secondary on-call, then to the engineering manager. Escalate directly to the manager for any incident involving customer data exposure."
+  },
+  {
+    "id": "kb-007",
+    "title": "Safe rollback procedure",
+    "tags": ["rollback", "deploy", "runbook"],
+    "content": "Identify the last known-good release tag from the deployment dashboard. Roll back via the standard deploy pipeline (never `kubectl edit` directly). Announce the rollback in the incident channel and monitor error rates for 15 minutes before closing the incident."
+  },
+  {
+    "id": "kb-008",
+    "title": "Cache invalidation checklist",
+    "tags": ["cache-service", "cache", "invalidation"],
+    "content": "Stale cache entries after a schema migration should be cleared via the `cache-service` admin endpoint's `/flush?namespace=` route, never a full flush in production. Confirm the namespace before flushing to avoid a cold-cache stampede on unrelated services."
+  },
+  {
+    "id": "kb-009",
+    "title": "Rate limiting and backpressure",
+    "tags": ["rate limit", "backpressure", "search-api"],
+    "content": "search-api enforces a token-bucket rate limit of 200 req/s per API key. A burst of 429s from a single key usually indicates a misbehaving batch job, not an outage — check the caller's request pattern before treating it as an incident."
+  },
+  {
+    "id": "kb-010",
+    "title": "TLS certificate renewal",
+    "tags": ["tls", "certificate", "security"],
+    "content": "Certificates are auto-renewed 30 days before expiry via the ACME client. If auto-renewal fails, check the ACME client logs for DNS-01 challenge failures, then renew manually with the documented `certbot renew --manual` procedure and redeploy the ingress."
+  },
+  {
+    "id": "kb-011",
+    "title": "Log aggregation and search tips",
+    "tags": ["logs", "observability", "search-api"],
+    "content": "Use the `service:<name> AND level:error` query in the log aggregator to scope investigation quickly. Correlate by `trace_id` across services rather than timestamp alone, since clocks can drift by a few seconds between hosts."
+  },
+  {
+    "id": "kb-012",
+    "title": "Notification delivery failures",
+    "tags": ["notification-service", "delivery", "alerts"],
+    "content": "If customer-facing notifications are delayed, check the notification-service outbound queue depth first. A growing queue with a healthy consumer count usually means a downstream provider (email/SMS) is throttling — check their status page before escalating internally."
+  },
+  {
+    "id": "kb-013",
+    "title": "When to open an incident vs. a ticket",
+    "tags": ["incident", "process", "severity"],
+    "content": "Open an incident (not just a ticket) whenever customer-facing functionality is degraded or down, or when a security-relevant event is detected. Internal-only issues with no customer impact should be filed as a ticket instead, even if urgent."
+  }
+]

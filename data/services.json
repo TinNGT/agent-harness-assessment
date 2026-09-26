@@ -1,0 +1,56 @@
+[
+  {
+    "name": "payment-api",
+    "status": "degraded",
+    "detail": "Elevated latency (p99 > 2s) on the checkout endpoint since 14:02 UTC.",
+    "fault": null
+  },
+  {
+    "name": "auth-service",
+    "status": "down",
+    "detail": "Login endpoint returning HTTP 503 for all requests.",
+    "fault": null
+  },
+  {
+    "name": "search-api",
+    "status": "healthy",
+    "detail": "All checks passing.",
+    "fault": null
+  },
+  {
+    "name": "notification-service",
+    "status": "healthy",
+    "detail": "All checks passing.",
+    "fault": null
+  },
+  {
+    "name": "database-primary",
+    "status": "degraded",
+    "detail": "Connection pool near saturation (92% of max_connections in use).",
+    "fault": null
+  },
+  {
+    "name": "cache-service",
+    "status": "healthy",
+    "detail": "All checks passing.",
+    "fault": null
+  },
+  {
+    "name": "slow-service",
+    "status": "unknown",
+    "detail": "Health check has not returned within the timeout window.",
+    "fault": "timeout"
+  },
+  {
+    "name": "flaky-service",
+    "status": "healthy",
+    "detail": "Intermittently unreachable; recovers after a couple of retries.",
+    "fault": "flaky"
+  },
+  {
+    "name": "broken-service",
+    "status": "healthy",
+    "detail": "Health check endpoint returns a malformed payload.",
+    "fault": "broken"
+  }
+]

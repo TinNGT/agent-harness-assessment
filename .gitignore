@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+harness.db
+harness.db-journal
+*.db
+.env
+dist/
+build/
+.uv/

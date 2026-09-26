@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_PROVIDER: scripted
+      MAX_STEPS: "10"
+      MAX_RUN_SECONDS: "60"
+      TOOL_TIMEOUT_SECONDS: "5"
+      TOOL_MAX_RETRIES: "2"
+      LLM_MAX_RETRIES: "3"
+      LLM_MAX_REPAIR: "2"
+      LOG_LEVEL: INFO
+      # Leave empty to disable tracing; point at Jaeger's OTLP HTTP endpoint to enable it.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318/v1/traces"
+    volumes:
+      - harness-db:/app
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4318:4318" # OTLP HTTP receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+volumes:
+  harness-db:

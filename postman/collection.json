@@ -1,0 +1,503 @@
+{
+  "info": {
+    "name": "Agent Harness — Operations Assistant",
+    "description": "Run folders top-to-bottom. Each request's Tests script saves run_id/approval_id into the environment so the next request in the same folder picks them up automatically. Requires the API running locally with LLM_PROVIDER=scripted (the default), so no API key is needed.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Health & Tools",
+      "item": [
+        {
+          "name": "Health check",
+          "request": { "method": "GET", "url": "{{base_url}}/health" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('status ok', () => pm.response.json().status === 'ok');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List tools",
+          "request": { "method": "GET", "url": "{{base_url}}/tools" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('has 3 tools', () => pm.response.json().length === 3);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path (read-only, no approval)",
+      "item": [
+        {
+          "name": "Create run — happy_path",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Check payment-api and summarize\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"happy_path\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('run completed', () => body.status === 'completed');",
+                  "pm.test('has final answer', () => !!body.final_answer);",
+                  "pm.environment.set('run_id', body.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get run",
+          "request": { "method": "GET", "url": "{{base_url}}/runs/{{run_id}}" },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('status 200', () => pm.response.to.have.status(200));"] }
+            }
+          ]
+        },
+        {
+          "name": "Get trace",
+          "request": { "method": "GET", "url": "{{base_url}}/runs/{{run_id}}/trace" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('has steps', () => body.steps.length > 0);",
+                  "pm.test('no approval requested', () => !body.steps.some(s => s.type === 'approval_requested'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Approval flow",
+      "item": [
+        {
+          "name": "Create run — approval_create_incident",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Handle the auth-service outage\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"approval_create_incident\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('waiting for approval', () => body.status === 'waiting_approval');",
+                  "pm.test('pending approval is create_incident', () => body.pending_approval.tool_name === 'create_incident');",
+                  "pm.environment.set('run_id', body.id);",
+                  "pm.environment.set('approval_id', body.pending_approval.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List runs waiting for approval",
+          "request": { "method": "GET", "url": "{{base_url}}/runs?status=waiting_approval" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('includes our run', () => pm.response.json().some(r => r.id === pm.environment.get('run_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approve the incident",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs/{{run_id}}/approvals/{{approval_id}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approve\",\n  \"approver\": \"alice\",\n  \"reason\": \"confirmed with the on-call engineer\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('run completed', () => body.status === 'completed');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approve again — expect 409 Conflict",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs/{{run_id}}/approvals/{{approval_id}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approve\",\n  \"approver\": \"alice\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('status 409', () => pm.response.to.have.status(409));"] }
+            }
+          ]
+        },
+        {
+          "name": "Approve unknown run — expect 404",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs/does-not-exist/approvals/also-missing",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approve\",\n  \"approver\": \"alice\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('status 404', () => pm.response.to.have.status(404));"] }
+            }
+          ]
+        },
+        {
+          "name": "Create run — then reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Handle the auth-service outage\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"approval_create_incident\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.environment.set('run_id', body.id);",
+                  "pm.environment.set('approval_id', body.pending_approval.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject the incident",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs/{{run_id}}/approvals/{{approval_id}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"reject\",\n  \"approver\": \"bob\",\n  \"reason\": \"duplicate of an existing incident\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('run still completes after reject', () => body.status === 'completed');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Tool failure",
+      "item": [
+        {
+          "name": "Retry then succeed — flaky-service",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Check flaky-service\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"tool_failure_retry_success\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('run completed despite transient failures', () => body.status === 'completed');",
+                  "pm.environment.set('run_id', body.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trace shows the retries",
+          "request": { "method": "GET", "url": "{{base_url}}/runs/{{run_id}}/trace" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const steps = pm.response.json().steps;",
+                  "const result = steps.find(s => s.type === 'tool_result');",
+                  "pm.test('succeeded on the 3rd attempt', () => result.attempt === 3);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Timeout exhausted — slow-service",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Check slow-service\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"tool_failure_timeout\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('LLM still produced a final answer', () => body.status === 'completed');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Output schema violation — broken-service",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Check broken-service\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"tool_failure_schema\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('run completed', () => body.status === 'completed');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Limits & malformed LLM output",
+      "item": [
+        {
+          "name": "Max steps exceeded",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Search many topics\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"max_steps_probe\",\n  \"max_steps\": 3\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('limit exceeded', () => body.status === 'limit_exceeded');",
+                  "pm.test('error mentions max_steps', () => body.error.message.includes('max_steps'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Repeated identical call detected as a loop",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Keep checking payment-api\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"infinite_loop\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('limit exceeded', () => body.status === 'limit_exceeded');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed JSON — LLM repairs itself",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Check search-api\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"malformed_then_repair\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('recovered and completed', () => body.status === 'completed');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed JSON — repair budget exhausted",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Check search-api\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"malformed_exhausted\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('run failed', () => body.status === 'failed');",
+                  "pm.test('error type is LLMParseError', () => body.error.type === 'LLMParseError');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown tool call is reported, then recovered",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Check search-api\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"unknown_tool\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('recovered and completed', () => body.status === 'completed');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid severity is rejected before approval",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/runs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"objective\": \"Open an incident for payment-api\",\n  \"llm\": \"scripted\",\n  \"scenario\": \"invalid_severity\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('waiting for approval on the valid retry', () => body.status === 'waiting_approval');",
+                  "pm.test('approved args use the valid severity', () => body.pending_approval.args.severity === 'high');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

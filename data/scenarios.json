@@ -1,0 +1,162 @@
+{
+  "happy_path": [
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_1", "name": "get_service_status", "arguments": {"service_name": "payment-api"}}
+    },
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_2", "name": "search_knowledge_base", "arguments": {"query": "payment-api degraded latency"}}
+    },
+    {
+      "type": "final",
+      "answer": "payment-api is degraded due to elevated checkout latency. Per the runbook, check the fraud-scoring service and the database-primary connection pool before escalating further. No incident was needed since this is a read-only investigation."
+    }
+  ],
+
+  "approval_create_incident": [
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_1", "name": "get_service_status", "arguments": {"service_name": "auth-service"}}
+    },
+    {
+      "type": "tool_call",
+      "tool_call": {
+        "id": "call_2",
+        "name": "create_incident",
+        "arguments": {
+          "title": "auth-service is down",
+          "description": "Login endpoint returning HTTP 503 for all requests.",
+          "severity": "critical"
+        }
+      }
+    },
+    {
+      "type": "final",
+      "answer": "Handled the auth-service outage: escalated via create_incident based on the human decision recorded for that request."
+    }
+  ],
+
+  "tool_failure_retry_success": [
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_1", "name": "get_service_status", "arguments": {"service_name": "flaky-service"}}
+    },
+    {
+      "type": "final",
+      "answer": "flaky-service recovered after a couple of transient errors; status is now healthy."
+    }
+  ],
+
+  "tool_failure_timeout": [
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_1", "name": "get_service_status", "arguments": {"service_name": "slow-service"}}
+    },
+    {
+      "type": "final",
+      "answer": "Could not retrieve slow-service's status: the health check kept timing out after all retries. Recommend paging on-call to check it manually."
+    }
+  ],
+
+  "tool_failure_schema": [
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_1", "name": "get_service_status", "arguments": {"service_name": "broken-service"}}
+    },
+    {
+      "type": "final",
+      "answer": "broken-service's health check returned a malformed response and could not be validated. Flagging for the owning team to fix the health endpoint."
+    }
+  ],
+
+  "malformed_then_repair": [
+    "this is not json at all {{{",
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_1", "name": "get_service_status", "arguments": {"service_name": "search-api"}}
+    },
+    {
+      "type": "final",
+      "answer": "search-api is healthy."
+    }
+  ],
+
+  "malformed_exhausted": [
+    "garbage response 1, definitely not json",
+    "garbage response 2 {not json either",
+    "garbage response 3 ]] still not json"
+  ],
+
+  "unknown_tool": [
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_1", "name": "delete_everything", "arguments": {}}
+    },
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_2", "name": "get_service_status", "arguments": {"service_name": "search-api"}}
+    },
+    {
+      "type": "final",
+      "answer": "search-api is healthy. (Ignored an earlier request for a tool that does not exist.)"
+    }
+  ],
+
+  "invalid_severity": [
+    {
+      "type": "tool_call",
+      "tool_call": {
+        "id": "call_1",
+        "name": "create_incident",
+        "arguments": {"title": "payment-api degraded", "description": "Elevated checkout latency.", "severity": "urgent"}
+      }
+    },
+    {
+      "type": "tool_call",
+      "tool_call": {
+        "id": "call_2",
+        "name": "create_incident",
+        "arguments": {"title": "payment-api degraded", "description": "Elevated checkout latency.", "severity": "high"}
+      }
+    },
+    {
+      "type": "final",
+      "answer": "Handled payment-api degradation based on the human decision recorded for the incident request."
+    }
+  ],
+
+  "infinite_loop": [
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_1", "name": "get_service_status", "arguments": {"service_name": "payment-api"}}
+    },
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_2", "name": "get_service_status", "arguments": {"service_name": "payment-api"}}
+    },
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_3", "name": "get_service_status", "arguments": {"service_name": "payment-api"}}
+    },
+    {
+      "type": "tool_call",
+      "tool_call": {"id": "call_4", "name": "get_service_status", "arguments": {"service_name": "payment-api"}}
+    }
+  ],
+
+  "max_steps_probe": [
+    {"type": "tool_call", "tool_call": {"id": "call_1", "name": "search_knowledge_base", "arguments": {"query": "topic-1"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_2", "name": "search_knowledge_base", "arguments": {"query": "topic-2"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_3", "name": "search_knowledge_base", "arguments": {"query": "topic-3"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_4", "name": "search_knowledge_base", "arguments": {"query": "topic-4"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_5", "name": "search_knowledge_base", "arguments": {"query": "topic-5"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_6", "name": "search_knowledge_base", "arguments": {"query": "topic-6"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_7", "name": "search_knowledge_base", "arguments": {"query": "topic-7"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_8", "name": "search_knowledge_base", "arguments": {"query": "topic-8"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_9", "name": "search_knowledge_base", "arguments": {"query": "topic-9"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_10", "name": "search_knowledge_base", "arguments": {"query": "topic-10"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_11", "name": "search_knowledge_base", "arguments": {"query": "topic-11"}}},
+    {"type": "tool_call", "tool_call": {"id": "call_12", "name": "search_knowledge_base", "arguments": {"query": "topic-12"}}}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "agent-harness-local",
+  "name": "Agent Harness — Local",
+  "values": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000", "type": "default", "enabled": true },
+    { "key": "run_id", "value": "", "type": "default", "enabled": true },
+    { "key": "approval_id", "value": "", "type": "default", "enabled": true }
+  ],
+  "_postman_variable_scope": "environment"
+}
