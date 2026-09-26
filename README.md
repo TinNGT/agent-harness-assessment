@@ -153,9 +153,12 @@ uv run pytest -q                       # full suite
 uv run pytest -q --cov=harness         # with coverage
 ```
 
-The suite covers: happy-path completion, tool retry/timeout/schema failures,
-the full approval lifecycle (pause → approve/reject → resume, double-decide
-409, unknown-id 404), step/deadline/loop limits (using a fake/ticking clock —
-no real `sleep`), malformed-LLM-output repair and repair-budget exhaustion,
-input validation, idempotent incident creation, and an end-to-end API test
-via `httpx.AsyncClient`.
+The suite (58 tests, ~95% coverage) covers: happy-path completion, tool
+retry/timeout/schema failures, the full approval lifecycle (pause →
+approve/reject → resume, double-decide 409, stale-run-version conflict,
+unknown-id 404), step/deadline/loop limits (using a fake/ticking clock — no
+real `sleep`), malformed-LLM-output repair and repair-budget exhaustion,
+LLM-API-error retry and retry-exhaustion, parser edge cases, the state
+machine's illegal-transition guard, input validation, idempotent incident
+creation, the real-LLM client (with `litellm` stubbed out — no network), and
+end-to-end API tests via `httpx.AsyncClient`.

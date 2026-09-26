@@ -58,7 +58,7 @@ literature, this implementation is a:
 | Validation | **Pydantic v2** | One schema definition serves tool-input validation, tool-output validation, LLM-decision parsing, and `/tools` JSON-schema output |
 | DB | **SQLite + SQLModel** | Zero setup for a reviewer; SQLModel gives typed models over SQLAlchemy Core |
 | Real LLM | **LiteLLM** | Swapping OpenAI/Claude/Gemini is one env var (`LLM_MODEL`), not a new client class |
-| Retry | Hand-rolled attempt loop in `ToolExecutor` | Simple enough not to need `tenacity`; keeps attempt-numbering visible to fault-injected mocks |
+| Retry | Hand-rolled attempt loop (`core/backoff.py`: exponential + full jitter) | Simple enough not to need `tenacity`; keeps attempt-numbering visible to fault-injected mocks, and the same `compute_delay()` backs both tool retries and LLM-API retries |
 | Logging | **structlog** → JSON lines | Every event carries `run_id`/`tool`/`attempt` for grep-able logs |
 | Tracing | **OpenTelemetry**, optional OTLP export | `run` → `llm_call` / `tool_call.<name>` spans; no-op by default, so it costs nothing when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset |
 | CLI | **Typer** | Thin wrapper calling the exact same `HarnessService` the API uses |
@@ -227,12 +227,17 @@ locking.
 
 ## 8. Testing strategy
 
-26 tests, all deterministic and network-free (`LLM_PROVIDER=scripted`):
-happy path; flaky/timeout/schema-invalid tool failures; the full approval
-lifecycle (pause → approve/reject → resume, double-decide → 409, unknown id
-→ 404); step/deadline/loop limits; malformed-LLM repair and repair-exhaustion;
-input validation; idempotent incident creation; and an end-to-end API test
-via `httpx.AsyncClient`. Two techniques keep this both fast and deterministic:
+58 tests, ~95% line coverage, all deterministic and network-free (real network
+calls — `litellm`/`LiteLLMClient` — are exercised with a stubbed-in module,
+never a live provider): happy path; flaky/timeout/schema-invalid tool
+failures; the full approval lifecycle (pause → approve/reject → resume,
+double-decide → 409, unknown id → 404, a stale-run-version conflict distinct
+from an already-decided approval); step/deadline/loop limits;
+malformed-LLM repair and repair-exhaustion; LLM-API-error retry and
+retry-exhaustion; parser edge cases (markdown-fenced JSON, non-object JSON,
+missing fields); the state-machine's illegal-transition guard; input
+validation; idempotent incident creation; and end-to-end API tests via
+`httpx.AsyncClient`. Two techniques keep this both fast and deterministic:
 
 - **`ScriptedLLM`** plays back a fixed script per scenario (`data/scenarios.json`),
   indexed by how many LLM turns have happened so far — so a run resumed after

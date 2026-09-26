@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Optional
 
 import structlog
 
 from harness.config import Settings
+from harness.core.backoff import compute_delay
 from harness.core.budget import BudgetExceeded, BudgetGuard
 from harness.core.clock import Clock
 from harness.core.state import ApprovalStatus, RunStatus, StepType, transition
@@ -206,6 +208,7 @@ class AgentRunner:
                     run.error = {"type": "LLMAPIError", "message": str(exc)}
                     self.repo.save_run(run)
                     return None
+                await asyncio.sleep(compute_delay(attempt))
 
         assert raw is not None
         run.messages.append({"role": "assistant", "content": raw})

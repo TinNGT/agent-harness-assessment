@@ -8,6 +8,7 @@ from typing import Any, Optional
 import structlog
 from pydantic import BaseModel
 
+from harness.core.backoff import compute_delay
 from harness.observability.tracing import get_tracer
 from harness.tools.errors import PermanentToolError, ToolTimeoutError, TransientToolError
 from harness.tools.registry import ToolContext, ToolSpec
@@ -75,11 +76,15 @@ class ToolExecutor:
                     "tool.timeout", run_id=run_id, tool=tool.name, attempt=attempt,
                     timeout_seconds=self.timeout_seconds,
                 )
+                if attempt < max_attempts:
+                    await asyncio.sleep(compute_delay(attempt))
             except TransientToolError as exc:
                 last_error = exc
                 logger.warning(
                     "tool.retry", run_id=run_id, tool=tool.name, attempt=attempt, error=str(exc)
                 )
+                if attempt < max_attempts:
+                    await asyncio.sleep(compute_delay(attempt))
             except PermanentToolError as exc:
                 latency_ms = int((time.monotonic() - start) * 1000)
                 logger.error(

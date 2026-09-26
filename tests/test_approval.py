@@ -4,7 +4,7 @@ import pytest
 from sqlmodel import select
 
 from harness.storage.models import Incident
-from harness.storage.repository import ConflictError, NotFoundError
+from harness.storage.repository import ConflictError, NotFoundError, Repository
 
 
 def _incident_count(service) -> int:
@@ -105,3 +105,60 @@ async def test_deciding_a_nonexistent_run_or_approval_raises_not_found(make_serv
             run_id="does-not-exist", approval_id="also-missing", decision="approve",
             approver="alice", reason=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_decision_other_than_approve_or_reject_is_rejected(make_service):
+    service = make_service()
+    run = await service.create_and_run(
+        objective="Handle the auth-service outage", scenario="approval_create_incident"
+    )
+    pending = await service.get_pending_approval(run.id)
+
+    with pytest.raises(ValueError):
+        await service.decide_approval(
+            run_id=run.id, approval_id=pending.id, decision="maybe", approver="alice", reason=None
+        )
+
+    # The bad decision must not have consumed the approval — a real one still works.
+    resumed = await service.decide_approval(
+        run_id=run.id, approval_id=pending.id, decision="approve", approver="alice", reason=None
+    )
+    assert resumed.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_stale_run_version_conflicts_even_if_approval_itself_is_still_pending(make_service):
+    """decide_approval_atomic guards on run.version, not just approval.status — a
+    caller holding a stale Run object (read before someone else's write) must not
+    be able to silently overwrite a run that has moved on in the meantime."""
+    service = make_service()
+    run = await service.create_and_run(
+        objective="Handle the auth-service outage", scenario="approval_create_incident"
+    )
+    pending = await service.get_pending_approval(run.id)
+    stale_version = run.version
+
+    with service._session() as session:
+        repo = Repository(session)
+        # Simulate a concurrent write bumping the run's version between this
+        # caller's read and its decide call.
+        fresh_run = repo.get_run(run.id)
+        repo.save_run(fresh_run)
+        assert fresh_run.version != stale_version
+
+        with pytest.raises(ConflictError, match="version conflict"):
+            repo.decide_approval_atomic(
+                approval_id=pending.id,
+                run_id=run.id,
+                decision="approved",
+                approver="alice",
+                reason=None,
+                now=service.clock.now(),
+                expected_run_version=stale_version,
+            )
+
+        # The approval itself must still be untouched (pending), since the
+        # run-version guard rejected the write before it could take effect.
+        untouched = repo.get_approval(pending.id)
+        assert untouched.status == "pending"

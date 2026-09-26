@@ -93,3 +93,61 @@ async def test_approving_unknown_run_404(client):
             json={"decision": "approve", "approver": "alice"},
         )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_trace_404_for_unknown_run(client):
+    async with client as c:
+        resp = await c.get("/runs/does-not-exist/trace")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_run_400_when_scenario_missing_for_scripted_llm(client):
+    async with client as c:
+        resp = await c.post("/runs", json={"objective": "Check payment-api", "llm": "scripted"})
+    assert resp.status_code == 400
+    assert "scenario" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_get_run_returns_full_run_details(client):
+    async with client as c:
+        created = await c.post(
+            "/runs", json={"objective": "Check payment-api", "llm": "scripted", "scenario": "happy_path"}
+        )
+        run_id = created.json()["id"]
+
+        resp = await c.get(f"/runs/{run_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == run_id
+    assert body["status"] == "completed"
+    assert body["pending_approval"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_runs_unfiltered_and_filtered_by_status(client):
+    async with client as c:
+        await c.post(
+            "/runs", json={"objective": "Check payment-api", "llm": "scripted", "scenario": "happy_path"}
+        )
+        await c.post(
+            "/runs",
+            json={
+                "objective": "Handle auth-service outage",
+                "llm": "scripted",
+                "scenario": "approval_create_incident",
+            },
+        )
+
+        all_runs = await c.get("/runs")
+        waiting_only = await c.get("/runs?status=waiting_approval")
+
+    assert all_runs.status_code == 200
+    assert len(all_runs.json()) == 2
+
+    assert waiting_only.status_code == 200
+    statuses = {r["status"] for r in waiting_only.json()}
+    assert statuses == {"waiting_approval"}
+    assert waiting_only.json()[0]["pending_approval"] is not None

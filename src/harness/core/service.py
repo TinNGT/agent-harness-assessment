@@ -41,7 +41,11 @@ class HarnessService:
                 raise ValueError("'scenario' is required when llm_provider='scripted'")
             return ScriptedLLM(scenario, self.scripts)
         if provider in ("litellm", "real"):
-            return LiteLLMClient(self.settings.llm_model)
+            return LiteLLMClient(
+                self.settings.llm_model,
+                openai_api_key=self.settings.openai_api_key,
+                anthropic_api_key=self.settings.anthropic_api_key,
+            )
         raise ValueError(f"unknown llm provider '{provider}'")
 
     def _make_runner(self, repo: Repository, llm_client: LLMClient) -> AgentRunner:
