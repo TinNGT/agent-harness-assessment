@@ -9,9 +9,102 @@ LLM — this is the default for every run (`--llm scripted` / `"llm": "scripted"
 A real LLM can be swapped in per-run instead (`--llm real` / `"llm": "real"`);
 see [Using a real LLM](#using-a-real-llm).
 
-See [`docs/report.md`](docs/report.md) for the design write-up (architecture,
-database schema, state machine, error handling, approval design,
-observability, limitations, future work).
+See [`docs/report.md`](docs/report.md) for the full design write-up (database
+schema, error-handling table, limitations, future work). The two diagrams
+below cover the architecture and one concrete request end-to-end.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    CLI["CLI (Typer)\nharness run / trace / approve"]
+    Postman["Postman / Swagger UI"]
+    API["FastAPI routes\nPOST /runs · GET /runs/id · /trace · POST /approvals"]
+
+    CLI --> Service
+    Postman --> API --> Service
+
+    subgraph Service["HarnessService — single entry point for CLI and API"]
+        Runner["AgentRunner\nthe LLM ↔ tool loop"]
+        Budget["BudgetGuard\nstep count · deadline · repeat-call detector"]
+        Approval["ApprovalGate\nserver-anchored approve/reject, args_hash"]
+        Runner --- Budget
+        Runner --- Approval
+    end
+
+    Runner -->|"step(messages)"| LLM{{"LLMClient"}}
+    LLM --> Scripted["ScriptedLLM\nfixed script, no network\n(data/scenarios.json)"]
+    LLM --> LiteLLM["LiteLLMClient\nreal model via --llm real"]
+
+    Runner -->|"execute(tool, args)"| Executor["ToolExecutor\ntimeout + bounded retry + backoff"]
+    Executor --> Tools["Mock tools\nget_service_status · search_knowledge_base · create_incident"]
+    Tools --> Data[("data/services.json\ndata/kb.json")]
+
+    Runner --> Repo["Repository"]
+    Approval --> Repo
+    Repo --> DB[("SQLite\nruns · steps · approvals · incidents")]
+
+    Runner -.->|"JSON logs + OTel spans"| Obs["structlog / OpenTelemetry"]
+```
+
+Everything funnels through **`HarnessService`**, so the CLI and the API can
+never drift apart — there is exactly one implementation of the agent loop.
+`messages` (the full LLM conversation) and every `Step` live in SQLite, not in
+a Python variable, which is what lets a run resume correctly after an
+approval decision even if the process restarted in between.
+
+## Execution flow example
+
+A concrete run that needs approval, end-to-end — this is what
+`uv run harness run "Handle the auth-service outage" --scenario approval_create_incident`
+actually does under the hood:
+
+```mermaid
+sequenceDiagram
+    actor U as You (CLI/API)
+    participant R as AgentRunner
+    participant L as LLM
+    participant T as ToolExecutor
+    participant DB as SQLite
+
+    U->>R: create_and_run(objective, scenario)
+    R->>DB: Run created (status=running)
+
+    R->>L: step(messages) — turn 1
+    L-->>R: tool_call get_service_status(auth-service)
+    R->>T: execute()
+    T-->>R: {status: "down", ...}
+    R->>DB: append Step (tool_call + tool_result)
+
+    R->>L: step(messages) — turn 2
+    L-->>R: tool_call create_incident(severity="critical")
+    Note over R: requires_approval=True — do NOT execute yet
+    R->>DB: create Approval (pending), Run.status=waiting_approval
+    R-->>U: return — run is paused
+
+    Note over U,DB: ...human reviews the request...
+
+    U->>DB: POST /approvals/{id} {decision: approve}
+    DB-->>DB: atomic UPDATE ... WHERE status='pending'
+    U->>R: resume_after_decision(run, approval)
+
+    R->>T: execute(create_incident, the ORIGINALLY proposed args)
+    T-->>R: {incident_id: "INC-1001", created: true}
+    R->>DB: append Step (approval_decided + tool_result)
+
+    R->>L: step(messages) — turn 3
+    L-->>R: final answer
+    R->>DB: Run.status=completed, final_answer set
+    R-->>U: {status: "completed", final_answer: "..."}
+```
+
+Two details worth noticing:
+
+- **The tool only runs after approval**, using the exact arguments the LLM
+  originally proposed — the approve/reject request itself never carries
+  arguments, so a client can't smuggle in different ones at decision time.
+- **Every arrow into `DB` is a persisted row**, not an in-memory log — replay
+  the whole thing anytime with `uv run harness trace <run_id>`.
 
 ## Quickstart
 
