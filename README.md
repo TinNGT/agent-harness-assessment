@@ -5,8 +5,9 @@ assistant, with input/output validation, retries, timeouts, budget limits,
 server-anchored human approval, and a full execution trace.
 
 Everything below runs with **zero API keys** using a deterministic scripted
-LLM (`LLM_PROVIDER=scripted`, the default). A real LLM can be swapped in via
-`LLM_PROVIDER=litellm` (see [Environment variables](#environment-variables)).
+LLM — this is the default for every run (`--llm scripted` / `"llm": "scripted"`).
+A real LLM can be swapped in per-run instead (`--llm real` / `"llm": "real"`);
+see [Using a real LLM](#using-a-real-llm).
 
 See [`docs/report.md`](docs/report.md) for the design write-up (architecture,
 database schema, state machine, error handling, approval design,
@@ -57,6 +58,10 @@ uv run harness trace <run_id>
 # Approve/reject an approval directly by id (e.g. from another terminal/session)
 uv run harness approve <run_id> <approval_id> --approver alice
 uv run harness approve <run_id> <approval_id> --reject --reason "duplicate incident"
+
+# Real LLM instead of the scripted one (needs an API key — see below); no
+# --scenario, since a real model decides its own next step
+uv run harness run "Check payment-api and open an incident if it's degraded" --llm real
 ```
 
 ## Using the API
@@ -89,16 +94,56 @@ Available scripted scenarios (pass as `"scenario"` when `"llm": "scripted"`):
 `max_steps_probe`. Each exercises one specific behavior described in the
 error-handling table in `docs/report.md`.
 
+## Using a real LLM
+
+The scripted LLM is a fixed script per scenario — useful for tests and demos,
+but it doesn't actually "think". To let a real model drive the loop:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set **one** of these (only one key is needed):
+
+```
+LLM_MODEL=gpt-4o-mini
+OPENAI_API_KEY=sk-...
+```
+```
+LLM_MODEL=claude-3-5-sonnet-20241022
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+`LLM_MODEL` accepts any [litellm](https://docs.litellm.ai/docs/providers)-supported
+model id — this is the only line that changes to swap providers.
+
+Then run without `--scenario` (a real model picks its own next step):
+
+```bash
+uv run harness run "Check payment-api and open an incident if it's degraded" --llm real
+```
+
+or via the API, `POST /runs` with `{"objective": "...", "llm": "real"}` (no
+`scenario` field).
+
+Notes:
+- This calls a real, billed API — usually a few cents per run.
+- `.env` is git-ignored; your key is never committed.
+- A real model won't always return valid JSON on the first try — that's the
+  `LLM_MAX_REPAIR` repair loop kicking in for real; worth watching via
+  `harness trace <run_id>` afterward.
+
 ## Environment variables
 
 All optional — see [`.env.example`](.env.example) for the full list and
 defaults. The defaults require no API key at all.
 
 ```
-LLM_PROVIDER=scripted        # scripted | litellm
+LLM_PROVIDER=scripted        # informational default; actual provider is chosen per run via
+                              # --llm/"llm" (CLI/API), not read from this variable
 LLM_MODEL=gpt-4o-mini        # any litellm-supported model id, e.g. claude-3-5-sonnet-20241022
-OPENAI_API_KEY=              # only needed if LLM_PROVIDER=litellm and using an OpenAI model
-ANTHROPIC_API_KEY=           # only needed if LLM_PROVIDER=litellm and using a Claude model
+OPENAI_API_KEY=              # only needed when calling with --llm real / "llm":"real" on an OpenAI model
+ANTHROPIC_API_KEY=           # only needed when calling with --llm real / "llm":"real" on a Claude model
 MAX_STEPS=10
 MAX_RUN_SECONDS=60
 TOOL_TIMEOUT_SECONDS=5
@@ -133,7 +178,7 @@ agent-harness/
 ├── src/harness/
 │   ├── api/            # FastAPI app, routes, request/response schemas
 │   ├── cli.py           # Typer CLI — calls the same service layer as the API
-│   ├── core/            # runner.py (agent loop), state.py, budget.py, approval.py, service.py
+│   ├── core/            # runner.py (agent loop), state.py, budget.py, approval.py, backoff.py, service.py
 │   ├── llm/             # LLM interface + ScriptedLLM + LiteLLMClient + parser
 │   ├── tools/            # tool registry, executor (timeout/retry), mock tool implementations
 │   ├── storage/          # SQLModel models + repository (DB access)
